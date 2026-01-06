@@ -1,0 +1,16 @@
+export const brands = [
+  "Nike",
+  "Adidas",
+  "Zara",
+  "H&M",
+  "Uniqlo",
+  "Forever 21",
+  "Gap",
+  "Levi's",
+  "Calvin Klein",
+  "Tommy Hilfiger",
+  "Ralph Lauren",
+  "Champion",
+  "Puma",
+  "Vans",
+];
