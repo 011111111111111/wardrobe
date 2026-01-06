@@ -1,0 +1,22 @@
+- name: Install Nagios Monitoring Server
+  hosts: all
+  become: yes
+  tasks:
+    - name: Update system packages
+      apt:
+        update_cache: yes
+
+    - name: Install Nagios and dependencies
+      apt:
+        name:
+          - nagios4
+          - nagios-plugins
+          - nagios-nrpe-plugin
+          - apache2
+        state: present
+
+    - name: Start and enable Nagios service
+      service:
+        name: nagios4
+        state: started
+        enabled: yes

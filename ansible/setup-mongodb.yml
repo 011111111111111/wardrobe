@@ -1,0 +1,221 @@
+---
+- name: Setup MongoDB on Database Instance
+  hosts: database
+  become: yes
+  vars:
+    mongodb_version: "7.0"
+
+  tasks:
+    - name: Update packages
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install prerequisites
+      apt:
+        name:
+          - curl
+          - gnupg
+          - ca-certificates
+        state: present
+
+    - name: Import MongoDB GPG key
+      shell: |
+        curl -fsSL https://pgp.mongodb.com/server-{{ mongodb_version }}.asc | gpg -o /usr/share/keyrings/mongodb-server-{{ mongodb_version }}.gpg --dearmor
+      args:
+        creates: /usr/share/keyrings/mongodb-server-{{ mongodb_version }}.gpg
+
+    - name: Add MongoDB repository
+      shell: |
+        echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-{{ mongodb_version }}.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/{{ mongodb_version }} multiverse" | tee /etc/apt/sources.list.d/mongodb-org-{{ mongodb_version }}.list
+      args:
+        creates: /etc/apt/sources.list.d/mongodb-org-{{ mongodb_version }}.list
+
+    - name: Update package list
+      apt:
+        update_cache: yes
+
+    - name: Install MongoDB
+      apt:
+        name: mongodb-org
+        state: present
+
+    - name: Create MongoDB data directory
+      file:
+        path: /data/db
+        state: directory
+        owner: mongodb
+        group: mongodb
+        mode: '0755'
+
+    - name: Create MongoDB log directory
+      file:
+        path: /var/log/mongodb
+        state: directory
+        owner: mongodb
+        group: mongodb
+        mode: '0755'
+
+    - name: Configure MongoDB to listen on all interfaces
+      lineinfile:
+        path: /etc/mongod.conf
+        regexp: '^  bindIp:'
+        line: '  bindIp: 0.0.0.0'
+        backup: yes
+
+    - name: Enable MongoDB service (without auth first to create users)
+      systemd:
+        name: mongod
+        enabled: yes
+        state: started
+
+    - name: Wait for MongoDB to start
+      wait_for:
+        port: 27017
+        host: localhost
+        delay: 10
+        timeout: 60
+
+    - name: Check if MongoDB authentication is enabled
+      shell: |
+        mongosh admin --quiet --eval "db.runCommand({connectionStatus: 1})" 2>&1 | grep -q "authenticatedUsers" && echo "enabled" || echo "disabled"
+      register: auth_status
+      changed_when: false
+      failed_when: false
+
+    - name: Create MongoDB admin user (without authentication)
+      shell: |
+        mongosh admin --quiet --eval "
+          try {
+            var user = db.getUser('admin');
+            print('Admin user already exists');
+          } catch(e) {
+            db.createUser({
+              user: 'admin',
+              pwd: '{{ mongodb_admin_password | default('admin123') }}',
+              roles: [{ role: 'root', db: 'admin' }]
+            });
+            print('Admin user created');
+          }
+        "
+      register: create_admin
+      changed_when: "'created' in create_admin.stdout"
+      when: auth_status.stdout == "disabled"
+
+    - name: Create MongoDB admin user (with authentication)
+      shell: |
+        mongosh "mongodb://admin:{{ mongodb_admin_password | default('admin123') }}@localhost:27017/admin" --quiet --eval "
+          try {
+            var user = db.getUser('admin');
+            print('Admin user already exists');
+          } catch(e) {
+            db.createUser({
+              user: 'admin',
+              pwd: '{{ mongodb_admin_password | default('admin123') }}',
+              roles: [{ role: 'root', db: 'admin' }]
+            });
+            print('Admin user created');
+          }
+        " || mongosh admin --quiet --eval "
+          try {
+            var user = db.getUser('admin');
+            print('Admin user already exists');
+          } catch(e) {
+            db.createUser({
+              user: 'admin',
+              pwd: '{{ mongodb_admin_password | default('admin123') }}',
+              roles: [{ role: 'root', db: 'admin' }]
+            });
+            print('Admin user created');
+          }
+        "
+      register: create_admin_auth
+      changed_when: "'created' in create_admin_auth.stdout"
+      when: auth_status.stdout == "enabled"
+      failed_when: false
+
+    - name: Create application database and user (without authentication)
+      shell: |
+        mongosh Digital_Wardrobe --quiet --eval "
+          try {
+            var user = db.getUser('wardrobe_user');
+            print('App user already exists');
+          } catch(e) {
+            db.createUser({
+              user: 'wardrobe_user',
+              pwd: '{{ mongodb_app_password | default('wardrobe123') }}',
+              roles: [{ role: 'readWrite', db: 'Digital_Wardrobe' }]
+            });
+            print('App user created');
+          }
+        "
+      register: create_app_user
+      changed_when: "'created' in create_app_user.stdout"
+      when: auth_status.stdout == "disabled"
+
+    - name: Create application database and user (with authentication)
+      shell: |
+        mongosh "mongodb://admin:{{ mongodb_admin_password | default('admin123') }}@localhost:27017/admin" --quiet --eval "
+          use Digital_Wardrobe;
+          try {
+            var user = db.getUser('wardrobe_user');
+            print('App user already exists');
+          } catch(e) {
+            db.createUser({
+              user: 'wardrobe_user',
+              pwd: '{{ mongodb_app_password | default('wardrobe123') }}',
+              roles: [{ role: 'readWrite', db: 'Digital_Wardrobe' }]
+            });
+            print('App user created');
+          }
+        "
+      register: create_app_user_auth
+      changed_when: "'created' in create_app_user_auth.stdout"
+      when: auth_status.stdout == "enabled"
+      ignore_errors: yes
+
+    - name: Enable MongoDB authentication
+      lineinfile:
+        path: /etc/mongod.conf
+        regexp: '^#?security:'
+        line: 'security:'
+        insertafter: '^#security:'
+      failed_when: false
+
+    - name: Add authorization configuration
+      lineinfile:
+        path: /etc/mongod.conf
+        regexp: '^  authorization:'
+        line: '  authorization: enabled'
+        insertafter: '^security:'
+      failed_when: false
+
+    - name: Restart MongoDB to apply authentication
+      systemd:
+        name: mongod
+        state: restarted
+
+    - name: Wait for MongoDB to restart
+      wait_for:
+        port: 27017
+        host: localhost
+        delay: 10
+        timeout: 60
+
+    - name: Verify MongoDB authentication
+      shell: |
+        mongosh "mongodb://wardrobe_user:{{ mongodb_app_password | default('wardrobe123') }}@localhost:27017/Digital_Wardrobe" --quiet --eval "db.stats()"
+      register: verify_auth
+      failed_when: false
+
+    - name: Display authentication verification
+      debug:
+        msg: "MongoDB authentication verified: {{ 'SUCCESS' if verify_auth.rc == 0 else 'FAILED - Check logs' }}"
+
+    - name: Display MongoDB connection information
+      debug:
+        msg:
+          - "MongoDB installed and running"
+          - "Connection string: mongodb://wardrobe_user:{{ mongodb_app_password | default('wardrobe123') }}@{{ ansible_default_ipv4.address }}:27017/Digital_Wardrobe"
+          - "Admin user: admin / {{ mongodb_admin_password | default('admin123') }}"
+

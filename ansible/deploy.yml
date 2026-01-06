@@ -1,0 +1,187 @@
+- name: Gather facts from all hosts
+  hosts: all
+  gather_facts: yes
+
+- name: Deploy Digital Wardrobe Application
+  hosts: app
+  become: yes
+  vars:
+    repo_url: "https://github.com/011111111111111/devops-practical-.git"  # Replace with your real repo
+    app_dir: "/home/ubuntu/digital-wardrobe"
+    # MongoDB connection - will be set from database instance private IP
+    db_host: "{{ hostvars[groups['database'][0]]['ansible_default_ipv4']['address'] }}"
+    mongodb_user: "wardrobe_user"
+    mongodb_password: "wardrobe123"  # Change this in production!
+    mongodb_db: "Digital_Wardrobe"
+    s3_bucket: "digital-wardrobe-storage-473a3ff6"  # S3 bucket name from Terraform output
+
+  tasks:
+    - name: Update packages
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install prerequisites
+      apt:
+        name:
+          - curl
+          - git
+          - build-essential
+          - python3-pip
+        state: present
+
+    - name: Install Node.js (20.x)
+      shell: |
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+        apt-get install -y nodejs build-essential
+
+    - name: Install PM2 globally
+      npm:
+        name: pm2
+        global: yes
+        state: present
+
+    - name: Clone Application Repository
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        version: main
+        force: yes
+
+    - name: Create logs directory
+      file:
+        path: "{{ app_dir }}/logs"
+        state: directory
+        mode: '0755'
+
+    - name: Get database instance private IP
+      set_fact:
+        db_private_ip: "{{ hostvars[groups['database'][0]]['ansible_default_ipv4']['address'] }}"
+      when: groups['database'] is defined
+      delegate_to: localhost
+      run_once: true
+
+    - name: Create .env file for production
+      copy:
+        content: |
+          NODE_ENV=production
+          MONGODB_URI=mongodb://{{ mongodb_user }}:{{ mongodb_password }}@{{ db_private_ip }}:27017/{{ mongodb_db }}
+          PORT=3000
+          S3_BUCKET={{ s3_bucket }}
+          AWS_REGION={{ aws_region | default("ap-south-1") }}
+        dest: "{{ app_dir }}/.env.production"
+        mode: '0644'
+
+    - name: Create PM2 ecosystem config file
+      copy:
+        content: |
+          module.exports = {
+            apps: [{
+              name: 'wardrobe-app',
+              script: 'npm',
+              args: 'start',
+              cwd: '{{ app_dir }}',
+              instances: 1,
+              autorestart: true,
+              watch: false,
+              max_memory_restart: '1G',
+              env: {
+                NODE_ENV: 'production',
+                PORT: 3000,
+                MONGODB_URI: 'mongodb://{{ mongodb_user }}:{{ mongodb_password }}@{{ db_private_ip }}:27017/{{ mongodb_db }}',
+                S3_BUCKET: '{{ s3_bucket }}',
+                AWS_REGION: '{{ aws_region | default("ap-south-1") }}'
+              },
+              error_file: '{{ app_dir }}/logs/err.log',
+              out_file: '{{ app_dir }}/logs/out.log',
+              log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+              merge_logs: true
+            }]
+          }
+        dest: "{{ app_dir }}/ecosystem.config.js"
+        mode: '0644'
+
+    - name: Install all dependencies (needed for build)
+      command: npm install
+      args:
+        chdir: "{{ app_dir }}"
+      # Don't set NODE_ENV=production here - we need devDependencies for the build
+
+    - name: Build Next.js application
+      command: npm run build
+      args:
+        chdir: "{{ app_dir }}"
+      environment:
+        NODE_ENV: production
+        MONGODB_URI: "mongodb://{{ mongodb_user }}:{{ mongodb_password }}@{{ db_private_ip }}:27017/{{ mongodb_db }}"
+
+    - name: Stop existing PM2 process if running
+      shell: pm2 stop wardrobe-app || true
+      ignore_errors: yes
+
+    - name: Delete existing PM2 process if exists
+      shell: pm2 delete wardrobe-app || true
+      ignore_errors: yes
+
+    - name: Start app using PM2 with ecosystem file
+      shell: |
+        pm2 start ecosystem.config.js
+        pm2 save
+        pm2 startup systemd -u ubuntu --hp /home/ubuntu || true
+      args:
+        chdir: "{{ app_dir }}"
+
+    - name: Show PM2 status
+      shell: pm2 status
+      register: pm2_status
+
+    - name: Display PM2 logs
+      shell: pm2 logs wardrobe-app --lines 50 --nostream
+      register: pm2_logs
+      ignore_errors: yes
+
+    - name: Print PM2 logs
+      debug:
+        var: pm2_logs.stdout_lines
+
+    - name: Wait for application to start
+      pause:
+        seconds: 10
+
+    - name: Test health endpoint
+      uri:
+        url: "http://localhost:3000/api/health"
+        method: GET
+        status_code: [200, 503]
+      register: health_check
+      ignore_errors: yes
+
+    - name: Display health check results
+      debug:
+        msg: "Health check: {{ health_check.json | default('Failed to connect') }}"
+
+    - name: Get AWS instance public IP
+      shell: curl -s http://169.254.169.254/latest/meta-data/public-ipv4
+      register: aws_public_ip
+      ignore_errors: yes
+
+    - name: Display deployment information
+      debug:
+        msg:
+          - "=========================================="
+          - "Deployment Complete!"
+          - "=========================================="
+          - "Application URL: http://{{ aws_public_ip.stdout | default('YOUR_AWS_IP') }}:3000"
+          - "Health Check: http://{{ aws_public_ip.stdout | default('YOUR_AWS_IP') }}:3000/api/health"
+          - ""
+          - "IMPORTANT: MongoDB Atlas Configuration"
+          - "=========================================="
+          - "1. Log in to MongoDB Atlas: https://cloud.mongodb.com/"
+          - "2. Go to Network Access"
+          - "3. Add IP Address: {{ aws_public_ip.stdout | default('YOUR_AWS_IP') }}"
+          - "   OR for testing: 0.0.0.0/0 (allows all IPs)"
+          - "4. Wait 1-2 minutes for changes to take effect"
+          - ""
+          - "To check logs: pm2 logs wardrobe-app"
+          - "To restart: pm2 restart wardrobe-app"
+          - "=========================================="
