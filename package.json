@@ -8,6 +8,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "build:web": "npx expo export --platform web --output-dir dist",
+    "vercel-build": "npm run build:web",
     "backend": "cd backend && npm run dev",
     "backend:start": "cd backend && npm start",
     "setup": "npm install && cd backend && npm install"
