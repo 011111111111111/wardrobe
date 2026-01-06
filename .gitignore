@@ -1,9 +1,6 @@
-<<<<<<< HEAD
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
-/node_modules
-/.pnp
+# Dependencies
+node_modules/
+.pnp
 .pnp.*
 .yarn/*
 !.yarn/patches
@@ -11,43 +8,43 @@
 !.yarn/releases
 !.yarn/versions
 
-# testing
-/coverage
+# Expo / web export
+.expo/
+dist/
+web-build/
 
-# next.js
-/.next/
-/out/
+# Next/legacy outputs
+.next/
+out/
+build/
 
-# production
-/build
+# Testing / coverage
+coverage/
 
-# misc
-.DS_Store
-*.pem
+# Env files and secrets
+.env
+.env*.local
 
-# debug
+# Logs / debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+dev.log
+server.log
 
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# OS / misc
+.DS_Store
+*.pem
 local-*
 .claude
 .z-ai-config
-dev.log
-test
 prompt
+test
 
-server.log
+# Typescript
+*.tsbuildinfo
+next-env.d.ts
 
 # Terraform
 .terraform/
@@ -56,7 +53,7 @@ server.log
 *.tfstate.backup
 .terraform.tfstate.lock.info
 
-# Uploaded files (should be in S3)
+# Uploaded files (if ever used locally; keep .gitkeep)
 public/uploads/*.jpeg
 public/uploads/*.jpg
 public/uploads/*.png
@@ -64,46 +61,3 @@ public/uploads/*.gif
 public/uploads/thumb-*
 public/uploads/processed-*
 !public/uploads/.gitkeep
-
-# Ansible (optional - uncomment if you don't want to commit inventory)
-# ansible/inventory.ini
-=======
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
-# Secret keys
-.env
-
-# dependencies
-node_modules/
-
-# Expo
-.expo/
-dist/
-web-build/
-
-# Native
-*.orig.*
-*.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
-
-# Metro
-.metro-health-check*
-
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
-# macOS
-.DS_Store
-*.pem
-
-# local env files
-.env*.local
-
-# typescript
-*.tsbuildinfo
->>>>>>> 6adbe868b9cd82cd2868ccf3305329840468af50
