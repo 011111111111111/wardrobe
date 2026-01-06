@@ -183,6 +183,28 @@ npm run dev
 npm start
 ```
 
+### Deploying to Vercel (no EC2 required)
+
+1. **Prepare the build**
+   ```bash
+   npm install
+   npm run build:web        # exports static web app to dist/
+   ```
+2. **Environment variables (set in Vercel Project → Settings → Environment Variables)**
+   - `EXPO_PUBLIC_API_URL=https://wardrobe-ten-phi.vercel.app/api`
+   - `MONGODB_URI=<your MongoDB Atlas URI>`
+   - `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET_NAME`
+   - `OPENAI_API_KEY`, `FAL_API_KEY`
+   - `CORS_ORIGIN=https://wardrobe-ten-phi.vercel.app`
+3. **Deploy**
+   ```bash
+   npm i -g vercel
+   vercel --prod
+   ```
+4. **Verify**
+   - API health: `https://<your-vercel-domain>/api/health`
+   - Frontend served from `dist/`
+
 ### API Endpoints
 
 - `GET /api/clothing?userId=<id>` - Get all clothing items
